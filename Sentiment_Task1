@@ -1,0 +1,113 @@
+# Import necessary libraries
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from wordcloud import WordCloud
+import nltk
+from nltk.corpus import stopwords
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import StandardScaler, label_binarize
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve, auc
+from sklearn.linear_model import LogisticRegression
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.svm import LinearSVC
+from sklearn.neighbors import KNeighborsClassifier
+
+# Download stopwords
+nltk.download('stopwords')
+
+# Load dataset
+df = pd.read_csv("/content/drive/MyDrive/amazon review system project/Reviews.csv")
+df = df.dropna(subset=['Summary', 'Text'])
+
+# Multi-class sentiment mapping
+def map_sentiment(score):
+    if score < 3:
+        return 0  # Negative
+    elif score == 3:
+        return 1  # Neutral
+    else:
+        return 2  # Positive
+
+df['sentiment'] = df['Score'].apply(map_sentiment)
+
+# Clean and combine text
+def clean_text(text):
+    return "".join([c for c in str(text) if c not in ('?', '.', ';', ':', '!', '"')])
+
+df['Text'] = df['Text'].apply(clean_text)
+df['Summary'] = df['Summary'].apply(clean_text)
+df['combined'] = df['Summary'] + " " + df['Text']
+
+# Split data
+train, test = train_test_split(df, test_size=0.2, random_state=42, stratify=df['sentiment'])
+
+# TF-IDF vectorization
+vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1, 2))
+X_train = vectorizer.fit_transform(train['combined'])
+X_test = vectorizer.transform(test['combined'])
+y_train = train['sentiment']
+y_test = test['sentiment']
+
+# Feature Scaling
+scaler = StandardScaler(with_mean=False)
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# Models
+models = {
+    "Logistic Regression": LogisticRegression(max_iter=6000, multi_class='ovr'),
+    "Naive Bayes": MultinomialNB(),
+    "Decision Tree": DecisionTreeClassifier(max_depth=10, random_state=42),
+    "Random Forest": RandomForestClassifier(n_estimators=50, max_depth=10, random_state=42),
+    "XGBoost": XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', objective='multi:softprob', num_class=3),
+    "Linear SVM": LinearSVC(),
+    "KNN": KNeighborsClassifier(n_neighbors=5)
+}
+
+# Binarize y_test for ROC-AUC
+y_test_bin = label_binarize(y_test, classes=[0, 1, 2])
+n_classes = y_test_bin.shape[1]
+
+# Train and evaluate
+auc_scores = {}
+plt.figure(figsize=(8, 6))
+
+for name, model in models.items():
+    print(f"\n{name} Training and Evaluation")
+    model.fit(X_train, y_train)
+    preds = model.predict(X_test)
+    print(classification_report(y_test, preds, target_names=['Negative', 'Neutral', 'Positive']))
+    print("Confusion Matrix:\n", confusion_matrix(y_test, preds))
+
+    if hasattr(model, "predict_proba"):
+        probs = model.predict_proba(X_test)
+        auc_val = roc_auc_score(y_test_bin, probs, average='macro', multi_class='ovr')
+        auc_scores[name] = auc_val
+
+        # Plot ROC curve (micro-averaged)
+        fpr, tpr, _ = roc_curve(y_test_bin.ravel(), probs.ravel())
+        plt.plot(fpr, tpr, label=f"{name} (AUC={auc_val:.2f})")
+
+# Final ROC curve plot
+plt.plot([0, 1], [0, 1], 'k--')
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve (Multi-Class)")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# AUC Bar Chart
+plt.figure(figsize=(8, 4))
+plt.bar(auc_scores.keys(), auc_scores.values(), color='skyblue')
+plt.title("Model AUC Scores (Macro-Averaged)")
+plt.ylabel("AUC")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
