@@ -1,0 +1,121 @@
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, roc_curve
+from sklearn.preprocessing import StandardScaler
+
+# Load the Titanic dataset
+url = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
+data = pd.read_csv(url)
+
+# Data preprocessing
+data['Age'] = data['Age'].fillna(data['Age'].median())
+data['Embarked'] = data['Embarked'].fillna(data['Embarked'].mode()[0])
+data['Fare'] = data['Fare'].fillna(data['Fare'].median())
+data.drop(['Cabin', 'Ticket', 'Name'], axis=1, inplace=True)
+
+# Encoding categorical variables
+data = pd.get_dummies(data, columns=['Sex', 'Embarked'], drop_first=True)
+
+# Splitting the dataset
+X = data.drop('Survived', axis=1)
+y = data['Survived']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Scale the features
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# Initialize models
+models = {
+    'Logistic Regression': LogisticRegression(max_iter=1000),
+    'Decision Tree': DecisionTreeClassifier(),
+    'Random Forest': RandomForestClassifier(),
+    'SVM': SVC(probability=True),
+    'KNN': KNeighborsClassifier()
+}
+
+# Define colors for models
+colors = {
+    'Logistic Regression': 'red',
+    'Decision Tree': 'black',
+    'Random Forest': 'green',
+    'SVM': 'blue',
+    'KNN': 'orange'
+}
+
+# Train and evaluate models
+results = []
+roc_data = {}  # Store ROC curve data for later plotting
+
+for model_name, model in models.items():
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    y_prob = model.predict_proba(X_test)[:, 1] if hasattr(model, "predict_proba") else None
+
+    # Calculate performance metrics
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred)
+    recall = recall_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred)
+    auc_score = roc_auc_score(y_test, y_prob) if y_prob is not None else None
+
+    results.append({
+        'Model': model_name,
+        'Accuracy': accuracy,
+        'Precision': precision,
+        'Recall': recall,
+        'F1-Score': f1,
+        'AUC': auc_score
+    })
+
+    # Store ROC curve data
+    if y_prob is not None:
+        fpr, tpr, _ = roc_curve(y_test, y_prob)
+        roc_data[model_name] = (fpr, tpr, colors[model_name])
+
+# Convert results to a DataFrame
+results_df = pd.DataFrame(results)
+
+# Display the results
+print("Model Performance Comparison:")
+print(results_df)
+
+# Plot all performance metrics first
+metrics = ['Accuracy', 'Precision', 'Recall', 'F1-Score', 'AUC']
+
+for metric in metrics:
+    plt.figure(figsize=(8, 6))
+    sns.barplot(x='Model', y=metric, data=results_df, palette='viridis', hue='Model', dodge=False, legend=False)
+    plt.title(f'Model {metric} Comparison')
+    plt.ylabel(metric)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+# Now, plot the ROC curves
+plt.figure(figsize=(7, 6))  # Adjust figure size
+for model_name, (fpr, tpr, color) in roc_data.items():
+    plt.plot(fpr, tpr, color=color, label=model_name, linewidth=2)
+
+# Plot diagonal reference line
+plt.plot([0, 1], [0, 1], linestyle='--', color='gray')
+
+# Labeling the axes
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve Comparison")
+
+# Move the legend to bottom-right
+plt.legend(loc="lower right", frameon=True, fontsize=10, edgecolor='black')
+
+# Show the ROC plot
+plt.show()
